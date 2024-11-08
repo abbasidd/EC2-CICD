@@ -1,0 +1,64 @@
+name: Build and deploy quotes-api
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the latest code from the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Create .env file using secrets (if needed)
+      - name: Set up environment variables
+        run: |
+          echo "${{ secrets.ENV }}" | tr " " "\n" >> .env
+
+      # Step 3: Build the Docker image using Docker Compose
+      - name: Build Docker image with Docker Compose
+        run: |
+          docker compose build
+
+      # Step 4: Save the Docker image as a tar file
+      - name: Save Docker image
+        run: |
+          docker save -o quotes-api.tar quotes-api
+
+      # Step 5: Copy the Docker image and Docker Compose files to the EC2 instance
+      - name: Copy image to EC2 instance
+        run: |
+          # Set up the SSH key using the private key stored in GitHub secrets
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ssh-key.pem
+          sudo chmod 400 ssh-key.pem
+
+          # Connect to EC2 and set up directory
+          ssh -i ssh-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            sudo mkdir -p /quotes-api
+            sudo chown -R ${{ secrets.EC2_USER }}:$${{ secrets.EC2_USER }} /quotes-api
+            cd /quotes-api
+          EOF
+
+          # Copy the Docker image, .env, and docker-compose.yml to the EC2 instance
+          scp -i ssh-key.pem -o StrictHostKeyChecking=no .env ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/quotes-api/.env 
+          scp -i ssh-key.pem -o StrictHostKeyChecking=no quotes-api.tar ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/quotes-api/quotes-api.tar
+          scp -i ssh-key.pem -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/quotes-api/docker-compose.yml && echo "done"
+
+      # Step 6: Load and run the Docker container on the EC2 instance
+      - name: Run Docker container with Docker Compose
+        run: |
+          ssh -t -i ssh-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            cd /quotes-api
+            docker load -i quotes-api.tar
+            docker compose down
+            docker compose up -d
+          EOF
+
+      # Step 7: Cleanup the temporary SSH key and Docker tar file to avoid clutter
+      - name: Cleanup
+        run: rm -f ssh-key.pem .env quotes-api.tar
