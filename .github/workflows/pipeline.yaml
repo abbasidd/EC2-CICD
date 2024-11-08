@@ -37,18 +37,18 @@ jobs:
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > ssh-key.pem
           sudo chmod 400 ssh-key.pem
 
-          # Connect to EC2 and set up directory
+          # Connect to EC2, create the directory, and ensure correct permissions
           ssh -i ssh-key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            sudo mkdir -p /quotes-api
-            sudo chown -R ${{ secrets.EC2_USER }}:$${{ secrets.EC2_USER }} /quotes-api
+            sudo mkdir -p /quotes-api          # Create deployment directory
+            sudo chown -R ec2-user:ec2-user /quotes-api     # Ensure ec2-user owns the directory
+            sudo chmod 775 /quotes-api          # Apply appropriate permissions
             cd /quotes-api
           EOF
 
           # Copy the Docker image, .env, and docker-compose.yml to the EC2 instance
-          scp -i ssh-key.pem -o StrictHostKeyChecking=no .env ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/quotes-api/.env 
+          scp -i ssh-key.pem -o StrictHostKeyChecking=no .env ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/quotes-api/.env
           scp -i ssh-key.pem -o StrictHostKeyChecking=no quotes-api.tar ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/quotes-api/quotes-api.tar
           scp -i ssh-key.pem -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/quotes-api/docker-compose.yml && echo "done"
-
       # Step 6: Load and run the Docker container on the EC2 instance
       - name: Run Docker container with Docker Compose
         run: |
